@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/sensor_history.dart';
 import '../../providers/analytics_provider.dart';
+import '../../providers/app_state_provider.dart';
 
 const _sensorTypes = [
   'temperature',
@@ -62,7 +63,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
   Future<void> _load() async {
@@ -95,7 +96,36 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final color = _sensorColors[_selectedSensor] ?? AppTheme.primaryColor;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Analytics')),
+      appBar: AppBar(
+        title: const Text('Analytics'),
+        actions: [
+          Consumer2<AnalyticsProvider, AppStateProvider>(
+            builder: (_, analytics, appState, __) {
+              final rooms = appState.rooms;
+              if (rooms.isEmpty) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: analytics.selectedRoom,
+                    isDense: true,
+                    items: rooms
+                        .map((r) => DropdownMenuItem(
+                              value: r.id,
+                              child: Text(r.name,
+                                  style: const TextStyle(fontSize: 13)),
+                            ))
+                        .toList(),
+                    onChanged: (id) {
+                      if (id != null) analytics.selectRoom(id);
+                    },
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
       body: RefreshIndicator(
         onRefresh: _load,
         child: Consumer<AnalyticsProvider>(
