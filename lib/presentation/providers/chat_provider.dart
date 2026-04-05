@@ -16,29 +16,24 @@ class ChatProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   bool get isSending => _isSending;
 
-  /// Load history: try backend first, fall back to local cache.
+  /// Load chat history from local cache.
   Future<void> fetchHistory() async {
     _isLoading = true;
     Future.delayed(Duration.zero, notifyListeners);
-
-    // Load local cache immediately so the UI has something to show
     await _loadLocal();
-
-    try {
-      final data = await ApiService.get('/api/v1/chat/history');
-      _messages = (data as List<dynamic>)
-          .map((e) => ChatMessage.fromJson(e as Map<String, dynamic>))
-          .toList();
-      await _saveLocal(); // keep local cache in sync with server
-    } catch (_) {
-      // Backend unavailable — local cache already loaded above
-    }
-
     _isLoading = false;
     notifyListeners();
   }
 
-  Future<void> sendMessage(String text) async {
+  /// Send a message to the Gemini AI server.
+  ///
+  /// [homeState] — current sensor readings from AppStateProvider.
+  /// [onCommand] — called when AI returns a device command.
+  Future<void> sendMessage(
+    String text,
+    Map<String, dynamic> homeState, {
+    Future<void> Function(String roomId, String command)? onCommand,
+  }) async {
     if (text.trim().isEmpty || _isSending) return;
     _isSending = true;
 
@@ -52,13 +47,32 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final data =
-          await ApiService.post('/api/v1/chat', {'message': text.trim()});
-      _messages = (data['all_messages'] as List<dynamic>)
-          .map((e) => ChatMessage.fromJson(e as Map<String, dynamic>))
-          .toList();
+      final data = await ApiService.aiPost('/chat', {
+        'message': text.trim(),
+        'state': homeState,
+      });
+
+      final reply = data['reply'] as String? ?? '';
+      final type = data['type'] as String? ?? 'EXPLAIN';
+      final commandData = data['command'] as Map<String, dynamic>?;
+
+      _messages.add(ChatMessage(
+        id: --_mockId,
+        role: 'assistant',
+        content: reply,
+        createdAt: DateTime.now(),
+      ));
+
+      // If AI returned a device command, execute it via cloud
+      if (type == 'COMMAND' && commandData != null && onCommand != null) {
+        final cloudCommand = commandData['cloud_command'] as String? ?? '';
+        final roomId = commandData['room_id'] as String? ?? '';
+        if (cloudCommand.isNotEmpty && roomId.isNotEmpty) {
+          await onCommand(roomId, cloudCommand);
+        }
+      }
     } catch (_) {
-      // Backend unavailable — keep user message and add mock reply
+      // AI server unavailable — fall back to mock
       _messages.removeWhere((m) => m.id == userMsg.id);
       _messages.add(ChatMessage(
         id: --_mockId,
@@ -66,7 +80,7 @@ class ChatProvider extends ChangeNotifier {
         content: userMsg.content,
         createdAt: userMsg.createdAt,
       ));
-      _messages.add(_mockResponse(text.trim()));
+      _messages.add(_mockResponse(text.trim(), homeState));
     }
 
     await _saveLocal();
@@ -75,13 +89,76 @@ class ChatProvider extends ChangeNotifier {
   }
 
   Future<void> clearHistory() async {
-    try {
-      await ApiService.delete('/api/v1/chat/history');
-    } catch (_) {}
     _messages.clear();
     await _clearLocal();
     notifyListeners();
   }
+
+  // ── Fallback mock (when AI server is offline) ─────────────────────────────
+
+  ChatMessage _mockResponse(String query, Map<String, dynamic> homeState) {
+    final q = query.toLowerCase();
+    String response;
+
+    // Try to answer from actual state data
+    final rooms =
+        (homeState['rooms'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
+
+    if (q.contains('temperature')) {
+      final temps = rooms
+          .where((r) => r['temperature'] != null)
+          .map((r) =>
+              '${_roomName(r['room_id'] as String)}: ${r['temperature']}°C')
+          .join(', ');
+      response = temps.isNotEmpty
+          ? 'Current temperatures — $temps.'
+          : 'No temperature data available yet.';
+    } else if (q.contains('rain')) {
+      final rainy = rooms
+          .where((r) => r['rain_detected'] == true)
+          .map((r) => _roomName(r['room_id'] as String))
+          .toList();
+      response = rainy.isEmpty
+          ? 'No rain detected in any room.'
+          : 'Rain detected in: ${rainy.join(', ')}.';
+    } else if (q.contains('co2') || q.contains('co₂')) {
+      final co2 = rooms
+          .where((r) => r['co2_ppm'] != null)
+          .map((r) =>
+              '${_roomName(r['room_id'] as String)}: ${r['co2_ppm']} ppm')
+          .join(', ');
+      response = co2.isNotEmpty ? 'CO₂ levels — $co2.' : 'No CO₂ data yet.';
+    } else if (q.contains('humidity')) {
+      final hum = rooms
+          .where((r) => r['humidity'] != null)
+          .map((r) =>
+              '${_roomName(r['room_id'] as String)}: ${r['humidity']}%')
+          .join(', ');
+      response = hum.isNotEmpty ? 'Humidity — $hum.' : 'No humidity data yet.';
+    } else if (q.contains('air quality') || q.contains('aqi')) {
+      final aqi = rooms
+          .where((r) => r['aqi'] != null)
+          .map((r) => '${_roomName(r['room_id'] as String)}: ${r['aqi']}')
+          .join(', ');
+      response =
+          aqi.isNotEmpty ? 'Air quality — $aqi.' : 'No air quality data yet.';
+    } else {
+      response =
+          'AI server is offline. Start the Python server (uvicorn main:app) to enable full AI responses.';
+    }
+
+    return ChatMessage(
+      id: --_mockId,
+      role: 'assistant',
+      content: response,
+      createdAt: DateTime.now(),
+    );
+  }
+
+  static String _roomName(String roomId) => roomId
+      .split('_')
+      .map((w) => w[0].toUpperCase() + w.substring(1))
+      .join(' ');
 
   // ── Local persistence ─────────────────────────────────────────────────────
 
@@ -118,38 +195,5 @@ class ChatProvider extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_prefKey);
     } catch (_) {}
-  }
-
-  // ── Mock responses ────────────────────────────────────────────────────────
-
-  ChatMessage _mockResponse(String query) {
-    final q = query.toLowerCase();
-    String response;
-    if (q.contains('temperature')) {
-      response =
-          'The current temperature is approximately 23°C based on recent sensor readings.';
-    } else if (q.contains('rain')) {
-      response = 'No rain detected at the moment. Rain sensors show 0 mm.';
-    } else if (q.contains('air quality') || q.contains('air')) {
-      response = 'Air quality is good. AQI reading is within normal range.';
-    } else if (q.contains('co2') || q.contains('co₂')) {
-      response =
-          'CO₂ levels are at 420 ppm, which is within acceptable outdoor range.';
-    } else if (q.contains('node') || q.contains('online')) {
-      response =
-          'All registered nodes are currently online and communicating normally.';
-    } else if (q.contains('home') || q.contains('summar')) {
-      response =
-          'Your home is in good condition. All sensors are operational, no active alerts, and temperature/humidity levels are comfortable.';
-    } else {
-      response =
-          'I have access to your home sensor data, node status, and automation flows. Ask me about temperature, humidity, air quality, or your smart home status.';
-    }
-    return ChatMessage(
-      id: --_mockId,
-      role: 'assistant',
-      content: response,
-      createdAt: DateTime.now(),
-    );
   }
 }

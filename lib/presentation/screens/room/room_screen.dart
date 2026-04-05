@@ -274,78 +274,71 @@ class _RoomScreenState extends State<RoomScreen> {
   }
 
   void _updateDevicePosition(String deviceId, DeviceType type, int position) {
-    // Update local state
+    // Update local state immediately for responsive UI
     setState(() {
       final updatedDevices = _currentRoom.devices.map((d) {
-        if (d.id == deviceId) {
-          return d.copyWith(position: position);
-        }
+        if (d.id == deviceId) return d.copyWith(position: position);
         return d;
       }).toList();
-
       _currentRoom = _currentRoom.copyWith(devices: updatedDevices);
     });
-
-    // Update provider
     context.read<AppStateProvider>().updateRoom(_currentRoom);
 
-    // TODO: Send MQTT command
-    // context.read<MqttProvider>().publishDeviceCommand(
-    //       _currentRoom.id,
-    //       type.name,
-    //       position,
-    //     );
+    // Map position to cloud command
+    final String command;
+    if (type == DeviceType.curtain) {
+      command = position == 0 ? 'close_blinds' : 'open_blinds';
+    } else {
+      command = position == 0 ? 'close_windows' : 'open_windows';
+    }
+    context.read<AppStateProvider>().sendCommand(
+          _currentRoom.id,
+          command,
+          reason: 'manual_control',
+        );
   }
 
   void _setMorningMode() {
-    // Open curtain fully
     final curtain = _currentRoom.curtain;
     if (curtain != null && curtain.id.isNotEmpty) {
       _updateDevicePosition(curtain.id, DeviceType.curtain, 100);
     }
-
-    // Open window partially
     final window = _currentRoom.window;
     if (window != null && window.id.isNotEmpty) {
       _updateDevicePosition(window.id, DeviceType.window, 50);
     }
-
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Morning mode activated')),
     );
   }
 
   void _setNightMode() {
-    // Close curtain
     final curtain = _currentRoom.curtain;
     if (curtain != null && curtain.id.isNotEmpty) {
       _updateDevicePosition(curtain.id, DeviceType.curtain, 0);
     }
-
-    // Close window
     final window = _currentRoom.window;
     if (window != null && window.id.isNotEmpty) {
       _updateDevicePosition(window.id, DeviceType.window, 0);
     }
-
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Night mode activated')),
     );
   }
 
   void _setVentilationMode() {
-    // Open curtain partially
     final curtain = _currentRoom.curtain;
     if (curtain != null && curtain.id.isNotEmpty) {
       _updateDevicePosition(curtain.id, DeviceType.curtain, 50);
     }
-
-    // Open window fully
     final window = _currentRoom.window;
     if (window != null && window.id.isNotEmpty) {
       _updateDevicePosition(window.id, DeviceType.window, 100);
     }
-
+    // Also activate the fan (no local device state for fan)
+    context.read<AppStateProvider>().sendCommand(
+          _currentRoom.id, 'turn_on_fan',
+          reason: 'ventilation_mode');
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Ventilation mode activated')),
     );

@@ -1,3 +1,6 @@
+# AI server secrets
+ai/.env
+
 # Miscellaneous
 *.class
 *.log

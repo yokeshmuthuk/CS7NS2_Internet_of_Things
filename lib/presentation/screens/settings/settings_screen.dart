@@ -17,6 +17,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _urlCtrl;
+  late TextEditingController _aiUrlCtrl;
   List<SensorThreshold> _thresholds = [];
   bool _loadingSensorThresholds = false;
 
@@ -24,6 +25,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _urlCtrl = TextEditingController(text: ApiService.baseUrl);
+    _aiUrlCtrl = TextEditingController(text: ApiService.aiBaseUrl);
     _loadSensorThresholds();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AlertsProvider>().fetchAlerts();
@@ -33,10 +35,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSensorThresholds() async {
     setState(() => _loadingSensorThresholds = true);
     try {
-      final data = await ApiService.get('/api/v1/thresholds');
-      _thresholds = (data as List<dynamic>)
+      final data = await ApiService.get('/thresholds');
+      final list = (data['thresholds'] as List<dynamic>)
           .map((e) => SensorThreshold.fromJson(e as Map<String, dynamic>))
           .toList();
+      if (mounted) setState(() => _thresholds = list);
     } catch (_) {}
     if (mounted) setState(() => _loadingSensorThresholds = false);
   }
@@ -62,9 +65,76 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  void _showEditThresholdDialog(SensorThreshold threshold) {
+    final ctrl = TextEditingController(text: threshold.value);
+    final descCtrl =
+        TextEditingController(text: threshold.description ?? '');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Edit ${threshold.displayName}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: ctrl,
+              decoration: const InputDecoration(labelText: 'Value'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: descCtrl,
+              decoration:
+                  const InputDecoration(labelText: 'Description (optional)'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _saveThreshold(SensorThreshold(
+                thresholdId: threshold.thresholdId,
+                value: ctrl.text.trim(),
+                description: descCtrl.text.trim().isEmpty
+                    ? null
+                    : descCtrl.text.trim(),
+              ));
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _saveThreshold(SensorThreshold t) async {
+    try {
+      await ApiService.put('/thresholds', t.toJson());
+      await _loadSensorThresholds();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('${t.displayName} updated')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to update threshold')),
+        );
+      }
+    }
+  }
+
   @override
   void dispose() {
     _urlCtrl.dispose();
+    _aiUrlCtrl.dispose();
     super.dispose();
   }
 
@@ -90,8 +160,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           AppTheme.primaryColor.withOpacity(0.15),
                       child: Text(
                         auth.currentUser!.name[0].toUpperCase(),
-                        style:
-                            const TextStyle(color: AppTheme.primaryColor),
+                        style: const TextStyle(
+                            color: AppTheme.primaryColor),
                       ),
                     ),
                     title: Text(auth.currentUser!.name),
@@ -99,29 +169,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const Divider(height: 1),
                   ListTile(
-                    leading: Icon(Icons.logout,
-                        color: AppTheme.errorColor),
+                    leading:
+                        Icon(Icons.logout, color: AppTheme.errorColor),
                     title: Text('Sign Out',
-                        style: TextStyle(color: AppTheme.errorColor)),
+                        style:
+                            TextStyle(color: AppTheme.errorColor)),
                     onTap: _logout,
                   ),
                 ] else ...[
-                  ListTile(
-                    leading: const Icon(Icons.person_outline),
-                    title: const Text('Guest User'),
-                    subtitle: const Text('Not signed in'),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(Icons.login),
-                    title: const Text('Sign In'),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const LoginScreen()),
-                      );
-                    },
+                  const ListTile(
+                    leading: Icon(Icons.person_outline),
+                    title: Text('Guest User'),
+                    subtitle: Text('Open PoC — no auth required'),
                   ),
                 ],
               ],
@@ -146,7 +205,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         child: TextField(
                           controller: _urlCtrl,
                           decoration: const InputDecoration(
-                            hintText: 'http://localhost:8000',
+                            hintText:
+                                'https://....execute-api.eu-west-1.amazonaws.com',
                             isDense: true,
                           ),
                         ),
@@ -154,6 +214,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(width: 8),
                       FilledButton(
                         onPressed: _saveUrl,
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
+                        ),
+                        child: const Text('Save'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // --- AI Server ---
+          _sectionHeader('AI SERVER (GEMINI)', theme),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('GossipHome AI URL',
+                      style: theme.textTheme.labelMedium),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Run: uvicorn main:app  (Python server)',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color:
+                          theme.colorScheme.onSurface.withOpacity(0.5),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _aiUrlCtrl,
+                          decoration: const InputDecoration(
+                            hintText: 'http://localhost:8000',
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        onPressed: () async {
+                          final url = _aiUrlCtrl.text.trim();
+                          if (url.isEmpty) return;
+                          await ApiService.setAiBaseUrl(url);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text('AI server URL saved')),
+                            );
+                          }
+                        },
                         style: FilledButton.styleFrom(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 16, vertical: 10),
@@ -182,12 +299,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        mainAxisAlignment:
+                            MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            '${alertsProvider.unreadCount} unread',
-                            style: theme.textTheme.bodySmall,
-                          ),
+                          Text('${alertsProvider.unreadCount} unread',
+                              style: theme.textTheme.bodySmall),
                           TextButton(
                             onPressed: alertsProvider.markAllRead,
                             child: const Text('Mark all read'),
@@ -221,7 +337,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 20),
 
-          // --- SensorThresholds ---
+          // --- Sensor Thresholds ---
           _sectionHeader('SENSOR THRESHOLDS', theme),
           if (_loadingSensorThresholds)
             const Center(child: CircularProgressIndicator())
@@ -237,7 +353,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: Text(
                   'No thresholds configured',
                   style: TextStyle(
-                    color: theme.colorScheme.onSurface.withOpacity(0.4),
+                    color:
+                        theme.colorScheme.onSurface.withOpacity(0.4),
                   ),
                 ),
               ),
@@ -252,38 +369,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       if (i > 0) const Divider(height: 1),
                       ListTile(
-                        title: Text(t.sensorType.replaceAll('_', ' '),
+                        title: Text(t.displayName,
                             style: const TextStyle(
                                 fontWeight: FontWeight.w600)),
-                        subtitle: Text(
-                          [
-                            if (t.minValue != null)
-                              'Min: ${t.minValue}${t.unit}',
-                            if (t.maxValue != null)
-                              'Max: ${t.maxValue}${t.unit}',
-                          ].join(' · '),
-                        ),
-                        trailing: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: t.isActive
-                                ? AppTheme.successColor.withOpacity(0.1)
-                                : theme.colorScheme.onSurface
-                                    .withOpacity(0.06),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            t.isActive ? 'Active' : 'Off',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: t.isActive
-                                  ? AppTheme.successColor
-                                  : theme.colorScheme.onSurface
-                                      .withOpacity(0.4),
-                            ),
-                          ),
+                        subtitle: Text(t.value +
+                            (t.description != null
+                                ? ' · ${t.description}'
+                                : '')),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.edit_outlined,
+                              size: 18),
+                          onPressed: () =>
+                              _showEditThresholdDialog(t),
                         ),
                       ),
                     ],
@@ -298,15 +395,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Card(
             child: Column(
               children: [
-                ListTile(
-                  leading: const Icon(Icons.home_outlined),
-                  title: const Text('IoT Curtain Automation'),
-                  subtitle: const Text('v1.0.0 · GossipHome Edition'),
+                const ListTile(
+                  leading: Icon(Icons.home_outlined),
+                  title: Text('GossipHome Automation'),
+                  subtitle: Text('v1.0.0 · CS7NS2 LSD Lab'),
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.code),
-                  title: const Text('Backend'),
+                  leading: const Icon(Icons.cloud_outlined),
+                  title: const Text('Cloud API'),
                   subtitle: Text(ApiService.baseUrl),
                 ),
               ],

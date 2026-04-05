@@ -71,11 +71,8 @@ class _AppEntryState extends State<_AppEntry> {
             body: Center(child: CircularProgressIndicator()),
           );
         }
-        // If authenticated, go straight to main; otherwise show login
-        if (auth.isAuthenticated) {
-          return const MainScreen();
-        }
-        return const LoginScreen();
+        // No auth required for PoC — go straight to the app
+        return const MainScreen();
       },
     );
   }
