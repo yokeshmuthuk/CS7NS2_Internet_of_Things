@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../providers/app_state_provider.dart';
 import '../../providers/chat_provider.dart';
 import '../../widgets/chat_bubble.dart';
 
@@ -42,8 +43,45 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _send(String text) async {
     if (text.trim().isEmpty) return;
     _inputCtrl.clear();
-    await context.read<ChatProvider>().sendMessage(text);
+    final appState = context.read<AppStateProvider>();
+    await context.read<ChatProvider>().sendMessage(
+      text,
+      _buildHomeState(appState),
+      onCommand: (roomId, command) =>
+          appState.sendCommand(roomId, command, reason: 'ai_command'),
+    );
     _scrollToBottom();
+  }
+
+  /// Builds the state dict passed to the AI server.
+  Map<String, dynamic> _buildHomeState(AppStateProvider appState) {
+    return {
+      'rooms': appState.rooms.map((room) {
+        final sensorMap = <String, dynamic>{};
+        for (final s in room.sensors) {
+          switch (s.type.name) {
+            case 'temperature':
+              sensorMap['temperature'] = s.value;
+            case 'humidity':
+              sensorMap['humidity'] = s.value;
+            case 'light':
+              sensorMap['light_lux'] = s.value;
+            case 'co2':
+              sensorMap['co2_ppm'] = s.value;
+            case 'rain':
+              sensorMap['rain_detected'] = s.value;
+            case 'airQuality':
+              sensorMap['aqi'] = s.value;
+          }
+        }
+        return {
+          'room_id': room.id,
+          'name': room.name,
+          'is_online': room.isOnline,
+          ...sensorMap,
+        };
+      }).toList(),
+    };
   }
 
   void _scrollToBottom() {
