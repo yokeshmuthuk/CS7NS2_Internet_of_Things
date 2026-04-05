@@ -7,71 +7,128 @@ class AnalyticsSummary {
   final double max;
   final double avg;
   final int count;
-  final String unit;
 
   AnalyticsSummary({
     required this.min,
     required this.max,
     required this.avg,
     required this.count,
-    required this.unit,
   });
-
-  factory AnalyticsSummary.fromJson(Map<String, dynamic> json) {
-    return AnalyticsSummary(
-      min: (json['min'] as num?)?.toDouble() ?? 0,
-      max: (json['max'] as num?)?.toDouble() ?? 0,
-      avg: (json['avg'] as num?)?.toDouble() ?? 0,
-      count: (json['count'] as int?) ?? 0,
-      unit: json['unit'] as String? ?? '',
-    );
-  }
 }
 
+// Maps analytics sensor type keys to cloud response field names
+const _fieldMap = {
+  'temperature': 'temperature',
+  'humidity': 'humidity',
+  'lux': 'light_lux',
+  'rain': 'rain_detected',
+  'co2': 'co2_ppm',
+  'air_quality': 'aqi',
+};
+
 class AnalyticsProvider extends ChangeNotifier {
-  // Cache: key = '$sensorType-$hours'
-  final Map<String, List<SensorHistory>> _historyCache = {};
-  Map<String, AnalyticsSummary> _summary = {};
+  // Raw history per room_id: list of full record maps
+  final Map<String, List<Map<String, dynamic>>> _rawCache = {};
+
+  String _selectedRoom = 'living_room';
   bool _isLoadingHistory = false;
   bool _isLoadingSummary = false;
+  Map<String, AnalyticsSummary> _summary = {};
 
-  List<SensorHistory> getHistory(String sensorType, int hours) =>
-      _historyCache['$sensorType-$hours'] ?? [];
-
-  Map<String, AnalyticsSummary> get summary => _summary;
+  String get selectedRoom => _selectedRoom;
   bool get isLoadingHistory => _isLoadingHistory;
   bool get isLoadingSummary => _isLoadingSummary;
+  Map<String, AnalyticsSummary> get summary => _summary;
+
+  // ── Extract per-sensor history from cached raw data ──────────────────────
+
+  List<SensorHistory> getHistory(String sensorType, int hours) {
+    final raw = _rawCache[_selectedRoom] ?? [];
+    final field = _fieldMap[sensorType] ?? sensorType;
+
+    return raw
+        .where((e) => e[field] != null && e[field] is num)
+        .map((e) {
+          final ts =
+              DateTime.tryParse(e['timestamp'] as String? ?? '') ??
+                  DateTime.now();
+          return SensorHistory(
+            sensorType: sensorType,
+            value: (e[field] as num).toDouble(),
+            timestamp: ts,
+          );
+        })
+        .toList();
+  }
+
+  // ── Fetch history from cloud ──────────────────────────────────────────────
 
   Future<void> fetchHistory(String sensorType, int hours) async {
-    _isLoadingHistory = true;
-    // Defer notification to avoid calling during build phase
-    Future.delayed(Duration.zero, notifyListeners);
-    try {
-      final data = await ApiService.get(
-          '/api/v1/sensors/history?sensor_type=$sensorType&hours=$hours&limit=500');
-      final list = (data as List<dynamic>)
-          .map((e) => SensorHistory.fromJson(e as Map<String, dynamic>))
-          .toList();
-      _historyCache['$sensorType-$hours'] = list;
-    } catch (_) {}
-    _isLoadingHistory = false;
+    // Only re-fetch if we don't have data for this room yet
+    if (!_rawCache.containsKey(_selectedRoom)) {
+      _isLoadingHistory = true;
+      notifyListeners();
+      try {
+        final data =
+            await ApiService.get('/history?room_id=$_selectedRoom');
+        final list = (data['history'] as List<dynamic>)
+            .cast<Map<String, dynamic>>();
+        _rawCache[_selectedRoom] = list;
+      } catch (_) {}
+      _isLoadingHistory = false;
+    }
     notifyListeners();
   }
+
+  // ── Compute summary from cached data ──────────────────────────────────────
 
   Future<void> fetchSummary(int hours) async {
     _isLoadingSummary = true;
-    Future.delayed(Duration.zero, notifyListeners);
-    try {
-      final data = await ApiService.get('/api/v1/sensors/summary?hours=$hours');
-      final map = data as Map<String, dynamic>;
-      _summary = map.map(
-        (k, v) => MapEntry(
-          k,
-          AnalyticsSummary.fromJson(v as Map<String, dynamic>),
-        ),
-      );
-    } catch (_) {}
+    notifyListeners();
+
+    // Ensure we have raw data
+    if (!_rawCache.containsKey(_selectedRoom)) {
+      try {
+        final data =
+            await ApiService.get('/history?room_id=$_selectedRoom');
+        final list = (data['history'] as List<dynamic>)
+            .cast<Map<String, dynamic>>();
+        _rawCache[_selectedRoom] = list;
+      } catch (_) {}
+    }
+
+    final raw = _rawCache[_selectedRoom] ?? [];
+    final computed = <String, AnalyticsSummary>{};
+
+    for (final entry in _fieldMap.entries) {
+      final sensorType = entry.key;
+      final field = entry.value;
+      final values = raw
+          .where((e) => e[field] != null && e[field] is num)
+          .map((e) => (e[field] as num).toDouble())
+          .toList();
+
+      if (values.isEmpty) continue;
+      final min = values.reduce((a, b) => a < b ? a : b);
+      final max = values.reduce((a, b) => a > b ? a : b);
+      final avg = values.fold(0.0, (s, v) => s + v) / values.length;
+      computed[sensorType] =
+          AnalyticsSummary(min: min, max: max, avg: avg, count: values.length);
+    }
+
+    _summary = computed;
     _isLoadingSummary = false;
     notifyListeners();
+  }
+
+  // ── Room selection ────────────────────────────────────────────────────────
+
+  void selectRoom(String roomId) {
+    if (_selectedRoom == roomId) return;
+    _selectedRoom = roomId;
+    _summary = {};
+    notifyListeners();
+    fetchHistory('temperature', 24);
+    fetchSummary(24);
   }
 }
