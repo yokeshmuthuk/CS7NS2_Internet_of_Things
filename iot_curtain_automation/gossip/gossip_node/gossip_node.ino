@@ -1,14 +1,18 @@
-#include "nodes/SimpleNode.h"
+// #include "nodes/SimpleNode.h"
 // #include "nodes/SensorNode.h"
 // #include "nodes/ActuatorNode.h"
 
-SimpleNode* node = nullptr;
+// #include "nodes/RainBuzzer.h"
+// RainBuzzerNode* node = nullptr;
+// void setup() { node = new RainBuzzerNode(); node->begin(); }
+// void loop()  { node->update(); }
 
-void setup() {
-    node = new SimpleNode();
-    node->begin();
-}
+// #include "nodes/LightServoNode.h"
+// LightServoNode* node = nullptr;
+// void setup() { node = new LightServoNode(); node->begin(); }
+// void loop()  { node->update(); }
 
-void loop() {
-    node->update();
-}
+#include "nodes/AirQualitySpeakerNode.h"
+AirQualitySpeakerNode* node = nullptr;
+void setup() { node = new AirQualitySpeakerNode(); node->begin(); }
+void loop()  { node->update(); }
