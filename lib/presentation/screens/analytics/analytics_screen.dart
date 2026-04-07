@@ -103,44 +103,85 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Analytics'),
-        actions: [
-          Consumer2<AnalyticsProvider, AppStateProvider>(
-            builder: (_, analytics, appState, __) {
-              final rooms = appState.rooms;
-              if (rooms.isEmpty) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: analytics.selectedRoom,
-                    isDense: true,
-                    items: rooms
-                        .map((r) => DropdownMenuItem(
-                              value: r.id,
-                              child: Text(r.name,
-                                  style: const TextStyle(fontSize: 13)),
-                            ))
-                        .toList(),
-                    onChanged: (id) {
-                      if (id != null) analytics.selectRoom(id);
-                    },
-                  ),
-                ),
-              );
-            },
-          ),
-        ],
       ),
       body: RefreshIndicator(
         onRefresh: _load,
-        child: Consumer<AnalyticsProvider>(
-          builder: (_, provider, __) {
+        child: Consumer2<AnalyticsProvider, AppStateProvider>(
+          builder: (_, provider, appState, __) {
             final history =
                 provider.getHistory(_selectedSensor, _selectedHours);
+            final rooms = appState.rooms;
             return ListView(
               padding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               children: [
+                // Node selector
+                if (rooms.isNotEmpty) ...[
+                  Row(
+                    children: [
+                      Icon(Icons.device_hub,
+                          size: 14,
+                          color: theme.colorScheme.onSurface.withOpacity(0.45)),
+                      const SizedBox(width: 6),
+                      Text(
+                        'NODE',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1,
+                          color: theme.colorScheme.onSurface.withOpacity(0.45),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 36,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: rooms.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (_, i) {
+                        final room = rooms[i];
+                        final active = provider.selectedRoom == room.id;
+                        return GestureDetector(
+                          onTap: () {
+                            provider.selectRoom(room.id);
+                            _load();
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: active
+                                  ? AppTheme.primaryColor.withOpacity(0.12)
+                                  : theme.colorScheme.surface,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: active
+                                    ? AppTheme.primaryColor.withOpacity(0.6)
+                                    : theme.dividerColor,
+                                width: active ? 1.5 : 1,
+                              ),
+                            ),
+                            child: Text(
+                              room.name,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: active
+                                    ? AppTheme.primaryColor
+                                    : theme.colorScheme.onSurface
+                                        .withOpacity(0.5),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 // Sensor type selector — only show types with actual data
                 Builder(builder: (context) {
                   final availableTypes = provider.summary.keys.toList();
