@@ -74,6 +74,34 @@ class NodeCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 6),
+                      if (node.isLeader)
+                        Container(
+                          margin: const EdgeInsets.only(right: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF59E0B).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                                color: const Color(0xFFF59E0B).withOpacity(0.5)),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.star, size: 9, color: Color(0xFFF59E0B)),
+                              SizedBox(width: 3),
+                              Text(
+                                'LEADER',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  color: Color(0xFFF59E0B),
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 6, vertical: 2),
