@@ -73,7 +73,7 @@ class ChatBubble extends StatelessWidget {
                         const SizedBox(width: 6),
                       ],
                       Flexible(
-                        child: Text(
+                        child: SelectableText(
                           message.content,
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: isUser
