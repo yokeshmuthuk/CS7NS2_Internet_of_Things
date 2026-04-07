@@ -17,7 +17,8 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _urlCtrl;
-  late TextEditingController _aiUrlCtrl;
+  late TextEditingController _geminiKeyCtrl;
+  bool _obscureKey = true;
   List<SensorThreshold> _thresholds = [];
   bool _loadingSensorThresholds = false;
 
@@ -25,7 +26,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _urlCtrl = TextEditingController(text: ApiService.baseUrl);
-    _aiUrlCtrl = TextEditingController(text: ApiService.aiBaseUrl);
+    _geminiKeyCtrl = TextEditingController(text: ApiService.geminiApiKey);
     _loadSensorThresholds();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AlertsProvider>().fetchAlerts();
@@ -134,7 +135,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void dispose() {
     _urlCtrl.dispose();
-    _aiUrlCtrl.dispose();
+    _geminiKeyCtrl.dispose();
     super.dispose();
   }
 
@@ -228,46 +229,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 20),
 
-          // --- AI Server ---
-          _sectionHeader('AI SERVER (GEMINI)', theme),
+          // --- Gemini API Key ---
+          _sectionHeader('AI (GEMINI)', theme),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('GossipHome AI URL',
+                  Text('Gemini API Key',
                       style: theme.textTheme.labelMedium),
                   const SizedBox(height: 4),
                   Text(
-                    'Run: uvicorn main:app  (Python server)',
+                    'Get a free key at aistudio.google.com',
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color:
-                          theme.colorScheme.onSurface.withOpacity(0.5),
+                      color: theme.colorScheme.onSurface.withOpacity(0.5),
                     ),
                   ),
                   const SizedBox(height: 8),
                   Row(
                     children: [
                       Expanded(
-                        child: TextField(
-                          controller: _aiUrlCtrl,
-                          decoration: const InputDecoration(
-                            hintText: 'http://localhost:8000',
-                            isDense: true,
+                        child: StatefulBuilder(
+                          builder: (_, setState) => TextField(
+                            controller: _geminiKeyCtrl,
+                            obscureText: _obscureKey,
+                            decoration: InputDecoration(
+                              hintText: 'AIza...',
+                              isDense: true,
+                              suffixIcon: IconButton(
+                                icon: Icon(_obscureKey
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined),
+                                iconSize: 18,
+                                onPressed: () =>
+                                    setState(() => _obscureKey = !_obscureKey),
+                              ),
+                            ),
                           ),
                         ),
                       ),
                       const SizedBox(width: 8),
                       FilledButton(
                         onPressed: () async {
-                          final url = _aiUrlCtrl.text.trim();
-                          if (url.isEmpty) return;
-                          await ApiService.setAiBaseUrl(url);
+                          final key = _geminiKeyCtrl.text.trim();
+                          if (key.isEmpty) return;
+                          await ApiService.setGeminiApiKey(key);
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content: Text('AI server URL saved')),
+                              const SnackBar(content: Text('Gemini API key saved')),
                             );
                           }
                         },
