@@ -72,6 +72,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       provider.fetchHistory(_selectedSensor, _selectedHours),
       provider.fetchSummary(_selectedHours),
     ]);
+    // Auto-select first available sensor type if current selection has no data
+    final available = provider.summary.keys.toList();
+    if (available.isNotEmpty && !available.contains(_selectedSensor)) {
+      setState(() => _selectedSensor = available.first);
+    }
   }
 
   void _selectSensor(String sensor) {
@@ -136,15 +141,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               padding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               children: [
-                // Sensor type selector
-                SizedBox(
-                  height: 68,
-                  child: ListView.separated(
+                // Sensor type selector — only show types with actual data
+                Builder(builder: (context) {
+                  final availableTypes = provider.summary.keys.toList();
+                  if (availableTypes.isEmpty) return const SizedBox.shrink();
+                  return SizedBox(height: 68, child: ListView.separated(
                     scrollDirection: Axis.horizontal,
-                    itemCount: _sensorTypes.length,
+                    itemCount: availableTypes.length,
                     separatorBuilder: (_, __) => const SizedBox(width: 8),
                     itemBuilder: (_, i) {
-                      final st = _sensorTypes[i];
+                      final st = availableTypes[i];
                       final active = _selectedSensor == st;
                       final c =
                           _sensorColors[st] ?? AppTheme.primaryColor;
@@ -193,8 +199,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         ),
                       );
                     },
-                  ),
-                ),
+                  ));
+                }),
                 const SizedBox(height: 16),
                 // Time range selector
                 Container(
