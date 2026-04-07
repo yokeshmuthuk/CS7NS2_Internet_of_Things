@@ -184,32 +184,54 @@ class NetworkProvider extends ChangeNotifier {
     _isLoading = true;
     Future.delayed(Duration.zero, notifyListeners);
     try {
-      final data = await ApiService.get('/api/v1/devices');
-      _nodes = (data as List<dynamic>)
-          .map((e) => NetworkNode.fromJson(e as Map<String, dynamic>))
-          .toList();
+      final data = await ApiService.get('/status');
+      final rooms = (data['rooms'] as List<dynamic>).cast<Map<String, dynamic>>();
+      _nodes = rooms.asMap().entries.map((e) {
+        final i = e.key;
+        final r = e.value;
+        final roomId = r['room_id'] as String? ?? 'room_$i';
+        return NetworkNode(
+          id: i + 1,
+          nodeId: roomId,
+          name: _roomDisplayName(roomId),
+          role: i == 0 ? 'trigger' : 'actuator',
+          ipAddress: null,
+          isOnline: true,
+          lastSeen: DateTime.tryParse(r['updated_at'] as String? ?? ''),
+        );
+      }).toList();
     } catch (_) {}
     _isLoading = false;
     notifyListeners();
   }
 
   Future<void> fetchMetrics() async {
-    try {
-      final data = await ApiService.get('/api/v1/gossip/metrics');
-      _metrics = GossipMetrics.fromJson(data as Map<String, dynamic>);
-      notifyListeners();
-    } catch (_) {}
+    // Derive metrics from loaded nodes
+    if (_nodes.isEmpty) return;
+    _metrics = GossipMetrics(
+      avgLatencyMs: 0,
+      totalEvents: 0,
+      activeNodes: _nodes.where((n) => n.isOnline).length,
+      messagesPerMinute: 0,
+      roundsCompleted: 0,
+    );
+    notifyListeners();
   }
 
   Future<void> fetchEvents() async {
-    try {
-      final data = await ApiService.get('/api/v1/gossip/events?limit=50');
-      final events = (data as List<dynamic>)
-          .map((e) => GossipEvent.fromJson(e as Map<String, dynamic>))
-          .toList();
-      _events = events;
-      notifyListeners();
-    } catch (_) {}
+    // Gossip events are not available via the cloud backend
+  }
+
+  static String _roomDisplayName(String roomId) {
+    const names = {
+      'living_room': 'Living Room',
+      'bedroom': 'Bedroom',
+      'kitchen': 'Kitchen',
+      'bathroom': 'Bathroom',
+      'balcony': 'Balcony',
+    };
+    return names[roomId] ??
+        roomId.split('_').map((w) => w[0].toUpperCase() + w.substring(1)).join(' ');
   }
 
   void addGossipEventFromWs(Map<String, dynamic> data) {
