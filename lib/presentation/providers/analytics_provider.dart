@@ -45,6 +45,7 @@ class AnalyticsProvider extends ChangeNotifier {
   List<SensorHistory> getHistory(String sensorType, int hours) {
     final raw = _rawCache[_selectedRoom] ?? [];
     final field = _fieldMap[sensorType] ?? sensorType;
+    final cutoff = DateTime.now().subtract(Duration(hours: hours));
 
     return raw
         .where((e) => e[field] != null && e[field] is num)
@@ -58,6 +59,7 @@ class AnalyticsProvider extends ChangeNotifier {
             timestamp: ts,
           );
         })
+        .where((e) => e.timestamp.isAfter(cutoff))
         .toList();
   }
 
@@ -98,12 +100,17 @@ class AnalyticsProvider extends ChangeNotifier {
     }
 
     final raw = _rawCache[_selectedRoom] ?? [];
+    final cutoff = DateTime.now().subtract(Duration(hours: hours));
+    final filtered = raw.where((e) {
+      final ts = DateTime.tryParse(e['timestamp'] as String? ?? '');
+      return ts != null && ts.isAfter(cutoff);
+    }).toList();
     final computed = <String, AnalyticsSummary>{};
 
     for (final entry in _fieldMap.entries) {
       final sensorType = entry.key;
       final field = entry.value;
-      final values = raw
+      final values = filtered
           .where((e) => e[field] != null && e[field] is num)
           .map((e) => (e[field] as num).toDouble())
           .toList();
