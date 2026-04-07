@@ -9,7 +9,6 @@ import '../../providers/network_provider.dart';
 import '../analytics/analytics_screen.dart';
 import '../chat/chat_screen.dart';
 import '../dashboard/dashboard_screen.dart';
-import '../flows/flows_screen.dart';
 import '../network/network_screen.dart';
 import '../settings/settings_screen.dart';
 
@@ -25,10 +24,9 @@ class _MainScreenState extends State<MainScreen> {
   final _wsService = WebSocketService();
   StreamSubscription? _wsSub;
 
-  final _screens = const [
+  static const _screens = [
     DashboardScreen(),
     AnalyticsScreen(),
-    FlowsScreen(),
     ChatScreen(),
     NetworkScreen(),
     SettingsScreen(),
@@ -100,11 +98,6 @@ class _MainScreenState extends State<MainScreen> {
                 icon: Icon(Icons.bar_chart_outlined),
                 selectedIcon: Icon(Icons.bar_chart),
                 label: 'Analytics',
-              ),
-              const NavigationDestination(
-                icon: Icon(Icons.flash_on_outlined),
-                selectedIcon: Icon(Icons.flash_on),
-                label: 'Flows',
               ),
               const NavigationDestination(
                 icon: Icon(Icons.chat_outlined),
