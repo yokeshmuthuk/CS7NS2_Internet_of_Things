@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../core/services/api_service.dart';
+import '../../core/services/gemini_service.dart';
 import '../../data/models/chat_message.dart';
 
 class ChatProvider extends ChangeNotifier {
@@ -47,10 +47,7 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final data = await ApiService.aiPost('/chat', {
-        'message': text.trim(),
-        'state': homeState,
-      });
+      final data = await GeminiService.chat(text.trim(), homeState);
 
       final reply = data['reply'] as String? ?? '';
       final type = data['type'] as String? ?? 'EXPLAIN';
@@ -71,11 +68,15 @@ class ChatProvider extends ChangeNotifier {
           await onCommand(roomId, cloudCommand);
         }
       }
-    } catch (_) {
+    } catch (e) {
+      final msg = e.toString();
+      final isQuota = msg.contains('429') || msg.contains('quota') || msg.contains('RESOURCE_EXHAUSTED');
       _messages.add(ChatMessage(
         id: --_mockId,
         role: 'assistant',
-        content: 'AI model is down. Please try again later.',
+        content: isQuota
+            ? 'Rate limit reached. Wait a moment and try again.'
+            : 'AI model is down. Please try again later.',
         createdAt: DateTime.now(),
         isError: true,
       ));
