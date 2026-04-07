@@ -69,14 +69,10 @@ class ChatProvider extends ChangeNotifier {
         }
       }
     } catch (e) {
-      final msg = e.toString();
-      final isQuota = msg.contains('429') || msg.contains('quota') || msg.contains('RESOURCE_EXHAUSTED');
       _messages.add(ChatMessage(
         id: --_mockId,
         role: 'assistant',
-        content: isQuota
-            ? 'Rate limit reached. Wait a moment and try again.'
-            : 'AI model is down. Please try again later.',
+        content: 'Error: $e',
         createdAt: DateTime.now(),
         isError: true,
       ));
