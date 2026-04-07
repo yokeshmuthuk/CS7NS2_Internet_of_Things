@@ -18,20 +18,20 @@
 #define ADMISSION_KEY  "cs7ns2-psk-2026"
 
 // ── Cloud ────────────────────────────────────────────────────────────────────
-#define CLOUD_BASE               "https://9lr86473n6.execute-api.eu-west-1.amazonaws.com"
-#define HEARTBEAT_INTERVAL       1000
-#define CLOUD_PUSH_INTERVAL      20000
-#define CLOUD_CMD_INTERVAL       7000
-#define CLOUD_THRESHOLD_INTERVAL 60000
+#define CLOUD_BASE                "https://9lr86473n6.execute-api.eu-west-1.amazonaws.com"
+#define HEARTBEAT_INTERVAL        1000
+#define CLOUD_PUSH_INTERVAL       20000
+#define CLOUD_CMD_INTERVAL        7000
+#define CLOUD_THRESHOLD_INTERVAL  60000
 
-// ── Priority classes (paper eq. 3) ───────────────────────────────────────────
+// ── Priority classes ────────────────────────────────────────────────────────
 enum class MsgPriority : uint8_t {
-    ALARM     = 1,   // fanout = ⌊N/2⌋,    T = 500ms  — motion, fire, intrusion
-    ROUTINE   = 2,   // fanout = ⌊log₂N⌋,  T = 3000ms — threshold crossings
-    TELEMETRY = 3    // fanout = 1,          T = 3000ms — background readings
+    ALARM     = 1,
+    ROUTINE   = 2,
+    TELEMETRY = 3
 };
 
-// ── State table entry (paper Table IV) ───────────────────────────────────────
+// ── State table entry ────────────────────────────────────────────────────────
 struct StateEntry {
     String   value;
     uint32_t version   = 0;
@@ -40,71 +40,44 @@ struct StateEntry {
     String   cmdStatus;   // PENDING | DISPATCHED | CONFIRMED | FAILED
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-
 class NodeBase {
 public:
-    NodeBase()  {}
+    NodeBase() {}
     virtual ~NodeBase() {}
 
     void begin();
     void update();
 
-    // ── Overrides for child nodes ─────────────────────────────────────────────
-    // Called when gossip merges any new key/value from a peer
+    // ── Overrides for child nodes ────────────────────────────────────────────
     virtual void onMessage(const String& key, const StateEntry& entry) {}
-
-    // Called when a new peer is discovered
     virtual void onPeerJoined(IPAddress peer) {}
-
-    // Called when this node gains or loses leadership
-    virtual void onLeaderChange(bool isLeader) {}
-
-    // Called when the leader dispatches a command to this node via UDP unicast
     virtual void onCommand(const String& action, uint32_t cmdId) {}
 
-    // ── Simple gossip API ─────────────────────────────────────────────────────
-
-    // Gossip a single key/value with a given priority.
-    // This is the primary API for child nodes to publish state.
-    // Example: reportState("motion", "detected", MsgPriority::ALARM);
+    // ── Simple gossip API ────────────────────────────────────────────────────
     void reportState(const String& key, const String& value,
                      MsgPriority priority = MsgPriority::TELEMETRY);
 
-    // Gossip an arbitrary flat JSON object. Each key/value pair in the JSON
-    // is inserted into the state table and gossiped at the given priority.
-    // Example: gossipJSON("{\"temperature\":22.5,\"humidity\":60}", MsgPriority::ROUTINE);
     void gossipJSON(const String& json,
                     MsgPriority priority = MsgPriority::TELEMETRY);
 
-    // Gossip a pre-built JsonObject (no serialisation needed from caller).
-    // Example:
-    //   StaticJsonDocument<128> doc;
-    //   doc["co2_ppm"] = 810;
-    //   doc["aqi"]     = "moderate";
-    //   gossipDoc(doc.as<JsonObject>(), MsgPriority::ROUTINE);
     void gossipDoc(JsonObjectConst obj,
                    MsgPriority priority = MsgPriority::TELEMETRY);
 
-    // ── Query helpers ─────────────────────────────────────────────────────────
+    // ── Query helpers ────────────────────────────────────────────────────────
+    String getState(const String& key);
+    bool   hasState(const String& key);
+    String getMyIP() { return _myIP; }
+    int    peerCount() { return (int)_peers.size(); }
 
-    // Read any value from the local state table
-    String      getState(const String& key);
-
-    // Check if a key exists in the state table
-    bool        hasState(const String& key);
-
-    String      getMyIP()    { return _myIP; }
-    bool        isLeader()   { return _isLeader; }
-    String      getLeaderIP(){ return _stateTable.count("leader") ? _stateTable["leader"].value : ""; }
-    int         peerCount()  { return (int)_peers.size(); }
+    // ── Debug / diagnostics ──────────────────────────────────────────────────
+    void printPeerTable();
+    void printStateTable();
 
 protected:
-    String                       _myIP;
-    bool                         _discoveryComplete = false;
-    bool                         _isLeader          = false;
-    std::map<String, StateEntry> _stateTable;
-    std::vector<IPAddress>       _peers;
+    String                         _myIP;
+    bool                           _discoveryComplete = false;
+    std::map<String, StateEntry>   _stateTable;
+    std::vector<IPAddress>         _peers;
 
 private:
     WiFiUDP   _gossipUDP;
@@ -112,39 +85,29 @@ private:
     IPAddress _broadcastIP;
 
     // Timers
-    uint32_t _lastHello     = 0;
-    uint32_t _lastGossip    = 0;
-    uint32_t _lastHeartbeat = 0;
-    uint32_t _lastCloudPush = 0;
-    uint32_t _lastCmdPoll   = 0;
-    uint32_t _lastThreshold = (uint32_t)(0UL - CLOUD_THRESHOLD_INTERVAL);
+    uint32_t _lastHello      = 0;
+    uint32_t _lastGossip     = 0;
+    uint32_t _lastHeartbeat  = 0;
+    uint32_t _lastCloudPush  = 0;
+    uint32_t _lastCmdPoll    = 0;
+    uint32_t _lastThreshold  = (uint32_t)(0UL - CLOUD_THRESHOLD_INTERVAL);
 
-    // Leader election
-    bool     _electionPending  = false;
-    uint32_t _electionBidAt    = 0;
-    bool     _leaderAnnounced  = false;
-
-    // ── WiFi ──────────────────────────────────────────────────────────────────
+    // ── WiFi ─────────────────────────────────────────────────────────────────
     void connectWiFi();
 
-    // ── Discovery ─────────────────────────────────────────────────────────────
+    // ── Discovery ────────────────────────────────────────────────────────────
     void sendHello();
     void handleDiscovery();
     bool addPeer(IPAddress ip);
 
-    // ── Gossip ────────────────────────────────────────────────────────────────
+    // ── Gossip ───────────────────────────────────────────────────────────────
     void   handleGossip();
-    void   gossipTo(MsgPriority priority);
-    void   pushStateTo(IPAddress target);
-    void   mergeState(const String& remoteJson);
+    void   gossipTo(MsgPriority priority, bool silent = false);
+    void   pushStateTo(IPAddress target, bool silent = false);
+    void   mergeState(const String& remoteJson, bool silent = false);
     String stateToJson();
 
-    // ── Leader election ───────────────────────────────────────────────────────
-    void runLeaderElection();
-    int  computeBidDelay();
-
-    // ── Cloud ─────────────────────────────────────────────────────────────────
-    void cloudAnnounceLeader();
+    // ── Cloud ────────────────────────────────────────────────────────────────
     void cloudHeartbeat();
     void cloudPushState();
     void cloudPollCommands();
