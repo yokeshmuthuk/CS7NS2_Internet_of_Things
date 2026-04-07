@@ -3,7 +3,7 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 import 'api_service.dart';
 
 class GeminiService {
-  static const _model = 'gemini-2.0-flash';
+  static const _model = 'gemini-2.5-flash';
 
   static const _systemPrompt = '''
 You are the AI assistant for the GossipHome smart-home IoT system.
