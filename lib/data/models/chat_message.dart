@@ -3,12 +3,14 @@ class ChatMessage {
   final String role; // 'user' | 'assistant'
   final String content;
   final DateTime createdAt;
+  final bool isError;
 
   ChatMessage({
     required this.id,
     required this.role,
     required this.content,
     required this.createdAt,
+    this.isError = false,
   });
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) {
