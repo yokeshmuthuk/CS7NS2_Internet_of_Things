@@ -1,8 +1,8 @@
 #include "NodeBase.h"
 
 // ── WiFi credentials & static IP table ───────────────────────────────────────
-const char* WIFI_SSID = "SwiftHall38";
-const char* WIFI_PASS = "Swifthall38@d3n1t1";
+const char* WIFI_SSID = "NTGR_29CE_2.4GHz";
+const char* WIFI_PASS = "vu5YQQtq";
 
 static IPAddress STATIC_IPS[] = {
     IPAddress(192, 168, 43, 100),   // NODE_ID 1 — Python / laptop
@@ -12,6 +12,57 @@ static IPAddress STATIC_IPS[] = {
 static IPAddress GATEWAY(192, 168, 43, 1);
 static IPAddress SUBNET(255, 255, 255, 0);
 static const int KNOWN_COUNT = 3;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  Pretty-print helpers
+// ═══════════════════════════════════════════════════════════════════════════════
+
+static void printRule(char c = '-', int w = 60) {
+    for (int i = 0; i < w; i++) Serial.print(c);
+    Serial.println();
+}
+
+static String pad(String s, int width) {
+    while ((int)s.length() < width) s += ' ';
+    if ((int)s.length() > width)    s  = s.substring(0, width);
+    return s;
+}
+
+void NodeBase::printPeerTable() {
+    printRule('=');
+    Serial.printf("  PEER TABLE  —  node %s  (%d peers)\n",
+                  _myIP.c_str(), (int)_peers.size());
+    printRule('=');
+    Serial.println("  #   IP Address        Status");
+    printRule('-');
+    for (int i = 0; i < (int)_peers.size(); i++) {
+        String ip = _peers[i].toString();
+        Serial.printf("  %-3d %-16s  online\n", i + 1, ip.c_str());
+    }
+    printRule('=');
+    Serial.println();
+}
+
+void NodeBase::printStateTable() {
+    printRule('=', 72);
+    Serial.printf("  STATE TABLE  —  node %s  (%d entries)\n",
+                  _myIP.c_str(), (int)_stateTable.size());
+    printRule('=', 72);
+    Serial.println("  Key                          Value                   Ver  CmdSt");
+    printRule('-', 72);
+    for (auto& kv : _stateTable) {
+        String key = pad(kv.first, 28);
+        String val = pad(kv.second.value, 22);
+        String cmdSt = kv.second.cmdStatus.length() ? kv.second.cmdStatus : "-";
+        Serial.printf("  %s %s v%-4lu %s\n",
+                      key.c_str(),
+                      val.c_str(),
+                      (unsigned long)kv.second.version,
+                      cmdSt.c_str());
+    }
+    printRule('=', 72);
+    Serial.println();
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  WiFi
@@ -46,7 +97,7 @@ void NodeBase::begin() {
     connectWiFi();
 
     StateEntry self;
-    self.value   = "online";
+    self.value = "online";
     self.version = 1;
     _stateTable[_myIP] = self;
 
@@ -72,31 +123,27 @@ void NodeBase::update() {
 
     handleGossip();
 
-    // Background periodic gossip — Class 3 baseline
     if (millis() - _lastGossip > 3000) {
         _lastGossip = millis();
-        gossipTo(MsgPriority::TELEMETRY);
+        gossipTo(MsgPriority::TELEMETRY, true);
     }
 
-    runLeaderElection();
-
-    if (_isLeader) {
-        if (millis() - _lastHeartbeat > HEARTBEAT_INTERVAL) {
-            _lastHeartbeat = millis();
-            cloudHeartbeat();
-        }
-        if (millis() - _lastCloudPush > CLOUD_PUSH_INTERVAL) {
-            _lastCloudPush = millis();
-            cloudPushState();
-        }
-        if (millis() - _lastCmdPoll > CLOUD_CMD_INTERVAL) {
-            _lastCmdPoll = millis();
-            cloudPollCommands();
-        }
-        if (millis() - _lastThreshold > CLOUD_THRESHOLD_INTERVAL) {
-            _lastThreshold = millis();
-            cloudPollThresholds();
-        }
+    // Leaderless cloud sync: every node does this
+    if (millis() - _lastHeartbeat > HEARTBEAT_INTERVAL) {
+        _lastHeartbeat = millis();
+        cloudHeartbeat();
+    }
+    if (millis() - _lastCloudPush > CLOUD_PUSH_INTERVAL) {
+        _lastCloudPush = millis();
+        cloudPushState();
+    }
+    if (millis() - _lastCmdPoll > CLOUD_CMD_INTERVAL) {
+        _lastCmdPoll = millis();
+        cloudPollCommands();
+    }
+    if (millis() - _lastThreshold > CLOUD_THRESHOLD_INTERVAL) {
+        _lastThreshold = millis();
+        cloudPollThresholds();
     }
 }
 
@@ -105,21 +152,19 @@ void NodeBase::update() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 void NodeBase::reportState(const String& key, const String& value,
-                            MsgPriority priority) {
+                           MsgPriority priority) {
     if (!_discoveryComplete) return;
     if (_stateTable.count(key) && _stateTable[key].value == value) return;
 
     StateEntry e;
-    e.value    = value;
-    e.version  = _stateTable.count(key) ? _stateTable[key].version + 1 : 1;
+    e.value = value;
+    e.version = _stateTable.count(key) ? _stateTable[key].version + 1 : 1;
     e.priority = (uint8_t)priority;
     _stateTable[key] = e;
 
     gossipTo(priority);
 }
 
-// Accepts a flat JSON string — each key/value pair gossiped at given priority.
-// Example: gossipJSON("{\"temperature\":22.5,\"humidity\":60}", MsgPriority::ROUTINE)
 void NodeBase::gossipJSON(const String& json, MsgPriority priority) {
     if (!_discoveryComplete) return;
 
@@ -131,24 +176,19 @@ void NodeBase::gossipJSON(const String& json, MsgPriority priority) {
     gossipDoc(doc.as<JsonObjectConst>(), priority);
 }
 
-// Accepts a pre-built JsonObject — inserts each field into state table and gossips.
-// Example:
-//   StaticJsonDocument<128> doc;
-//   doc["co2_ppm"] = 810;
-//   gossipDoc(doc.as<JsonObject>(), MsgPriority::ROUTINE);
 void NodeBase::gossipDoc(JsonObjectConst obj, MsgPriority priority) {
     if (!_discoveryComplete) return;
 
     bool anyChanged = false;
     for (JsonPairConst kv : obj) {
-        String key   = kv.key().c_str();
+        String key = kv.key().c_str();
         String value = kv.value().as<String>();
 
         if (_stateTable.count(key) && _stateTable[key].value == value) continue;
 
         StateEntry e;
-        e.value    = value;
-        e.version  = _stateTable.count(key) ? _stateTable[key].version + 1 : 1;
+        e.value = value;
+        e.version = _stateTable.count(key) ? _stateTable[key].version + 1 : 1;
         e.priority = (uint8_t)priority;
         _stateTable[key] = e;
         anyChanged = true;
@@ -184,9 +224,8 @@ void NodeBase::sendHello() {
             _discoveryUDP.beginPacket(STATIC_IPS[i], DISCOVERY_PORT);
             _discoveryUDP.print(msg);
             _discoveryUDP.endPacket();
-            Serial.printf("[Discovery] HELLO → %s (unicast)\n",
-                          STATIC_IPS[i].toString().c_str());
         }
+        Serial.printf("[Discovery] HELLO → %d unicast targets\n", KNOWN_COUNT - 1);
     } else {
         _discoveryUDP.beginPacket(_broadcastIP, DISCOVERY_PORT);
         _discoveryUDP.print(msg);
@@ -210,10 +249,10 @@ void NodeBase::handleDiscovery() {
     if (String(doc["key"].as<const char*>()) != ADMISSION_KEY) return;
 
     IPAddress from = _discoveryUDP.remoteIP();
-    String    type = doc["type"].as<String>();
+    String type = doc["type"].as<String>();
 
     if (type == "HELLO") {
-        Serial.printf("[Discovery] HELLO from %s\n", from.toString().c_str());
+        Serial.printf("[Discovery] ← HELLO from %s\n", from.toString().c_str());
         addPeer(from);
 
         DynamicJsonDocument ack(1024);
@@ -228,8 +267,6 @@ void NodeBase::handleDiscovery() {
         _discoveryUDP.beginPacket(from, DISCOVERY_PORT);
         _discoveryUDP.print(ackMsg);
         _discoveryUDP.endPacket();
-        Serial.printf("[Discovery] HELLO_ACK → %s (%d peers)\n",
-                      from.toString().c_str(), (int)_peers.size());
 
         DynamicJsonDocument notify(128);
         notify["type"] = "NEW_PEER";
@@ -244,10 +281,10 @@ void NodeBase::handleDiscovery() {
         }
 
     } else if (type == "HELLO_ACK") {
-        Serial.printf("[Discovery] HELLO_ACK from %s\n", from.toString().c_str());
+        Serial.printf("[Discovery] ← HELLO_ACK from %s\n", from.toString().c_str());
         addPeer(from);
 
-        if (doc.containsKey("state")) mergeState(doc["state"].as<String>());
+        if (doc.containsKey("state")) mergeState(doc["state"].as<String>(), true);
         if (doc.containsKey("peers")) {
             for (JsonVariant p : doc["peers"].as<JsonArray>()) {
                 IPAddress newPeer;
@@ -257,11 +294,12 @@ void NodeBase::handleDiscovery() {
         }
         _discoveryComplete = true;
         Serial.println("[Discovery] Complete ✓");
+        printPeerTable();
 
     } else if (type == "NEW_PEER") {
         IPAddress newPeer;
         newPeer.fromString(doc["ip"].as<String>());
-        if (addPeer(newPeer)) pushStateTo(newPeer);
+        if (addPeer(newPeer)) pushStateTo(newPeer, true);
     }
 }
 
@@ -269,7 +307,7 @@ bool NodeBase::addPeer(IPAddress ip) {
     if (ip == WiFi.localIP()) return false;
     for (auto& p : _peers) if (p == ip) return false;
     _peers.push_back(ip);
-    Serial.printf("[Discovery] + Peer: %s (total: %d)\n",
+    Serial.printf("[Discovery] + Peer: %s  (total: %d)\n",
                   ip.toString().c_str(), (int)_peers.size());
     onPeerJoined(ip);
     return true;
@@ -279,17 +317,16 @@ bool NodeBase::addPeer(IPAddress ip) {
 //  Gossip
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Equation (3) — adaptive fanout per priority class
-void NodeBase::gossipTo(MsgPriority priority) {
+void NodeBase::gossipTo(MsgPriority priority, bool silent) {
     if (_peers.empty()) return;
 
-    int N      = (int)_peers.size();
+    int N = (int)_peers.size();
     int fanout = 1;
     switch (priority) {
-        case MsgPriority::ALARM:    fanout = max(1, N / 2);             break;
-        case MsgPriority::ROUTINE:  fanout = max(1, (int)log2((double)N)); break;
+        case MsgPriority::ALARM:     fanout = max(1, N / 2); break;
+        case MsgPriority::ROUTINE:   fanout = max(1, (int)log2((double)N)); break;
         case MsgPriority::TELEMETRY:
-        default:                    fanout = 1;                          break;
+        default:                     fanout = 1; break;
     }
 
     std::vector<IPAddress> shuffled = _peers;
@@ -297,11 +334,12 @@ void NodeBase::gossipTo(MsgPriority priority) {
         int j = random(0, i + 1);
         std::swap(shuffled[i], shuffled[j]);
     }
+
     int count = min(fanout, (int)shuffled.size());
-    for (int i = 0; i < count; i++) pushStateTo(shuffled[i]);
+    for (int i = 0; i < count; i++) pushStateTo(shuffled[i], silent);
 }
 
-void NodeBase::pushStateTo(IPAddress target) {
+void NodeBase::pushStateTo(IPAddress target, bool silent) {
     DynamicJsonDocument doc(1024);
     doc["type"]  = "SYN";
     doc["from"]  = _myIP;
@@ -311,7 +349,9 @@ void NodeBase::pushStateTo(IPAddress target) {
     _gossipUDP.beginPacket(target, GOSSIP_PORT);
     _gossipUDP.print(msg);
     _gossipUDP.endPacket();
-    Serial.printf("[Gossip] SYN → %s\n", target.toString().c_str());
+
+    if (!silent)
+        Serial.printf("[Gossip] → SYN %s\n", target.toString().c_str());
 }
 
 void NodeBase::handleGossip() {
@@ -327,13 +367,11 @@ void NodeBase::handleGossip() {
     if (deserializeJson(doc, buf) != DeserializationError::Ok) return;
 
     IPAddress from = _gossipUDP.remoteIP();
-    String    type = doc["type"].as<String>();
+    String type = doc["type"].as<String>();
 
     if (type == "SYN") {
-        Serial.printf("[Gossip] SYN from %s\n", from.toString().c_str());
-        if (doc.containsKey("state")) mergeState(doc["state"].as<String>());
+        if (doc.containsKey("state")) mergeState(doc["state"].as<String>(), true);
 
-        // Push-pull — reply with our own state
         DynamicJsonDocument ack(1024);
         ack["type"]  = "ACK";
         ack["from"]  = _myIP;
@@ -342,59 +380,65 @@ void NodeBase::handleGossip() {
         _gossipUDP.beginPacket(from, GOSSIP_PORT);
         _gossipUDP.print(ackMsg);
         _gossipUDP.endPacket();
-        Serial.printf("[Gossip] ACK → %s\n", from.toString().c_str());
 
     } else if (type == "ACK") {
-        Serial.printf("[Gossip] ACK from %s\n", from.toString().c_str());
-        if (doc.containsKey("state")) mergeState(doc["state"].as<String>());
+        if (doc.containsKey("state")) mergeState(doc["state"].as<String>(), true);
 
     } else if (type == "CMD") {
-        // Direct UDP unicast from leader — execute and confirm
-        String   action = doc["action"] | "";
-        uint32_t cmdId  = doc["cmdId"]  | 0;
-        Serial.printf("[Gossip] CMD: %s (id=%lu)\n",
-                      action.c_str(), (unsigned long)cmdId);
+        String action = doc["action"] | "";
+        uint32_t cmdId = doc["cmdId"] | 0;
+        String room = doc["room"] | "";
 
-        // Dedup — ignore already-confirmed cmdIds
+        printRule('*', 60);
+        Serial.printf("  *** CMD RECEIVED from %s\n", from.toString().c_str());
+        Serial.printf("      action : %s\n", action.c_str());
+        Serial.printf("      cmdId  : %lu\n", (unsigned long)cmdId);
+        Serial.printf("      room   : %s\n", room.c_str());
+        printRule('*', 60);
+
         String cmdKey = "cmd:" + _myIP;
         if (_stateTable.count(cmdKey) &&
-            _stateTable[cmdKey].cmdId     == cmdId &&
+            _stateTable[cmdKey].cmdId == cmdId &&
             _stateTable[cmdKey].cmdStatus == "CONFIRMED") {
-            Serial.println("[Gossip] CMD duplicate — ignored");
+            Serial.println("  [CMD] Duplicate — ignored\n");
             return;
         }
 
         onCommand(action, cmdId);
 
-        // Write CONFIRMED and gossip back so leader (and new leader) can see it
         StateEntry e;
-        e.value     = action;
-        e.cmdId     = cmdId;
+        e.value = action;
+        e.cmdId = cmdId;
         e.cmdStatus = "CONFIRMED";
-        e.version   = _stateTable.count(cmdKey) ? _stateTable[cmdKey].version + 1 : 1;
+        e.version = _stateTable.count(cmdKey) ? _stateTable[cmdKey].version + 1 : 1;
         _stateTable[cmdKey] = e;
         gossipTo(MsgPriority::ROUTINE);
+
+        Serial.println("  [CMD] CONFIRMED — state table:");
+        printStateTable();
     }
 }
 
-// Equation (7) — last-write-wins on scalar version
-void NodeBase::mergeState(const String& remoteJson) {
+void NodeBase::mergeState(const String& remoteJson, bool silent) {
     DynamicJsonDocument doc(1024);
     if (deserializeJson(doc, remoteJson) != DeserializationError::Ok) return;
 
     for (JsonPair kv : doc.as<JsonObject>()) {
-        String   key    = kv.key().c_str();
+        String key = kv.key().c_str();
         uint32_t remVer = kv.value()["v"].as<uint32_t>();
 
         if (!_stateTable.count(key) || remVer > _stateTable[key].version) {
             StateEntry e;
-            e.value     = kv.value()["val"]   | "";
-            e.version   = remVer;
-            e.cmdId     = kv.value()["cmdId"] | 0;
+            e.value = kv.value()["val"] | "";
+            e.version = remVer;
+            e.cmdId = kv.value()["cmdId"] | 0;
             e.cmdStatus = kv.value()["cmdSt"] | "";
             _stateTable[key] = e;
-            Serial.printf("  [Merge] %s = %s (v%u)\n",
-                          key.c_str(), e.value.c_str(), remVer);
+
+            if (!silent)
+                Serial.printf("  [Merge] %-28s = %s (v%u)\n",
+                              key.c_str(), e.value.c_str(), remVer);
+
             onMessage(key, e);
         }
     }
@@ -409,100 +453,40 @@ String NodeBase::stateToJson() {
         o["cmdId"] = kv.second.cmdId;
         o["cmdSt"] = kv.second.cmdStatus;
     }
-    String out; serializeJson(doc, out); return out;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-//  Leader Election
-// ═══════════════════════════════════════════════════════════════════════════════
-
-// Equation (5) — priority score delay.
-// IP last octet carries weight 150 (larger than heap range 200 only if very similar)
-// ensuring nodes with any IP difference get meaningfully separated delays.
-int NodeBase::computeBidDelay() {
-    float H  = ESP.getFreeHeap()       / (512.0f * 1024.0f);  // 0–1
-    float S  = abs(WiFi.RSSI())        / 100.0f;               // 0–1
-    float IP = (255 - WiFi.localIP()[3]) / 255.0f;             // 0–1, lower IP = higher
-
-    int d = 500 - (int)(200 * H) - (int)(100 * S) - (int)(150 * IP);
-    return constrain(d, 50, 500);
-}
-
-void NodeBase::runLeaderElection() {
-    // Leader already confirmed in gossip table — accept and settle
-    if (_stateTable.count("leader") && _stateTable["leader"].value.length() > 0) {
-        bool wasLeader = _isLeader;
-        _isLeader      = (_stateTable["leader"].value == _myIP);
-
-        if (_isLeader != wasLeader) {
-            Serial.printf("[Leader] %s\n", _isLeader ? "I am leader" : "Stepped down");
-            onLeaderChange(_isLeader);
-            _leaderAnnounced = false;
-        }
-
-        // One-shot cloud announcement when we win
-        if (_isLeader && !_leaderAnnounced) {
-            _leaderAnnounced = true;
-            cloudAnnounceLeader();
-        }
-
-        _electionPending = false;
-        return;
-    }
-
-    // No leader — start countdown
-    if (!_electionPending) {
-        _electionPending = true;
-        int d = computeBidDelay();
-        _electionBidAt = millis() + d;
-        Serial.printf("[Election] No leader — bidding in %dms\n", d);
-        return;
-    }
-
-    // Still counting down
-    if ((int32_t)(millis() - _electionBidAt) < 0) return;
-
-    // Claim leadership — write into state table and flood all peers
-    Serial.printf("[Election] Claiming: %s\n", _myIP.c_str());
-    StateEntry e;
-    e.value   = _myIP;
-    e.version = 1;
-    _stateTable["leader"] = e;
-    _isLeader             = true;
-
-    for (auto& p : _peers) pushStateTo(p);
-    onLeaderChange(true);
-    // _leaderAnnounced will trigger cloudAnnounceLeader() next tick
+    String out; serializeJson(doc, out); 
+    Serial.printf("[stateToJson] %d entries → %s\n", (int)_stateTable.size(), out.c_str());
+    return out;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  Cloud
 // ═══════════════════════════════════════════════════════════════════════════════
 
-void NodeBase::cloudAnnounceLeader() {
-    DynamicJsonDocument doc(128);
-    doc["room_id"] = "hub";
-    doc["leader"]  = _myIP;
-    doc["node_id"] = NODE_ID;
-    String body, response;
-    serializeJson(doc, body);
-    if (httpPOST("/state", body, response))
-        Serial.printf("[Cloud] Leader announced: %s\n", _myIP.c_str());
-}
-
 void NodeBase::cloudHeartbeat() {
     DynamicJsonDocument doc(128);
-    doc["room_id"]   = "hub";
+    doc["room_id"] = "hub";
     doc["heartbeat"] = true;
+    doc["node_ip"] = _myIP;
+    doc["node_id"] = NODE_ID;
     String body, response;
     serializeJson(doc, body);
     httpPOST("/state", body, response);
 }
 
-// Maps gossip state keys to cloud schema fields for POST /state
 void NodeBase::cloudPushState() {
-    DynamicJsonDocument doc(512);
+    DynamicJsonDocument doc(2048);
     doc["room_id"] = "living_room";
+    doc["node_ip"] = _myIP;
+    doc["node_id"] = NODE_ID;
+
+    JsonObject table = doc.createNestedObject("state_table");
+    for (auto& kv : _stateTable) {
+        JsonObject o = table.createNestedObject(kv.first);
+        o["val"]   = kv.second.value;
+        o["v"]     = kv.second.version;
+        o["cmdId"] = kv.second.cmdId;
+        o["cmdSt"] = kv.second.cmdStatus;
+    }
 
     auto get = [&](const String& k) {
         return _stateTable.count(k) ? _stateTable[k].value : String("");
@@ -517,10 +501,9 @@ void NodeBase::cloudPushState() {
     String body, response;
     serializeJson(doc, body);
     if (httpPOST("/state", body, response))
-        Serial.println("[Cloud] State pushed OK");
+        Serial.println("[Cloud] State pushed ✓");
 }
 
-// GET /commands — leader polls, writes WAL, unicasts to target peer
 void NodeBase::cloudPollCommands() {
     String response;
     if (!httpGET("/commands", response)) return;
@@ -530,70 +513,35 @@ void NodeBase::cloudPollCommands() {
     if ((doc["count"] | 0) == 0) return;
 
     for (JsonVariant cmd : doc["commands"].as<JsonArray>()) {
-        String   command = cmd["command"].as<String>();
-        String   room    = cmd["room_id"] | "";
-        uint32_t cmdId   = (uint32_t)millis();
+        String command = cmd["command"].as<String>();
+        String room    = cmd["room_id"] | "";
+        uint32_t cmdId = cmd["cmd_id"] | (uint32_t)millis();
 
-        // RE-ELECT signal — cloud detected heartbeat timeout
-        if (command == "RE-ELECT") {
-            Serial.println("[Election] RE-ELECT from cloud");
-            _stateTable.erase("leader");
-            _isLeader        = false;
-            _leaderAnnounced = false;
-            _electionPending = false;
-            for (auto& p : _peers) pushStateTo(p);   // flood erasure
-            onLeaderChange(false);
-            return;
+        String myRoomKey = "room:" + _myIP;
+        bool isForMe = !_stateTable.count(myRoomKey) || _stateTable[myRoomKey].value == room;
+        if (!isForMe) continue;
+
+        String cmdKey = "cmd:" + _myIP;
+        if (_stateTable.count(cmdKey) &&
+            _stateTable[cmdKey].cmdId == cmdId &&
+            _stateTable[cmdKey].cmdStatus == "CONFIRMED") {
+            continue;
         }
 
-        // Step 1: WAL — PENDING before any dispatch
-        String cmdKey = "cmd:" + room;
+        Serial.printf("[Cloud] CMD local: %s  room=%s\n", command.c_str(), room.c_str());
+        onCommand(command, cmdId);
+
         StateEntry e;
-        e.value     = command;
-        e.version   = _stateTable.count(cmdKey) ? _stateTable[cmdKey].version + 1 : 1;
-        e.cmdId     = cmdId;
-        e.cmdStatus = "PENDING";
+        e.value = command;
+        e.version = _stateTable.count(cmdKey) ? _stateTable[cmdKey].version + 1 : 1;
+        e.cmdId = cmdId;
+        e.cmdStatus = "CONFIRMED";
         _stateTable[cmdKey] = e;
 
-        // Step 2: Replicate PENDING across mesh before dispatch
         gossipTo(MsgPriority::ROUTINE);
-
-        // Step 3: Find target peer by room and UDP unicast
-        bool dispatched = false;
-        for (auto& peer : _peers) {
-            String roomKey = "room:" + peer.toString();
-            if (_stateTable.count(roomKey) && _stateTable[roomKey].value == room) {
-                DynamicJsonDocument cmdDoc(256);
-                cmdDoc["type"]   = "CMD";
-                cmdDoc["action"] = command;
-                cmdDoc["cmdId"]  = cmdId;
-                cmdDoc["room"]   = room;
-                cmdDoc["from"]   = _myIP;
-                String cmdMsg; serializeJson(cmdDoc, cmdMsg);
-
-                _gossipUDP.beginPacket(peer, GOSSIP_PORT);
-                _gossipUDP.print(cmdMsg);
-                _gossipUDP.endPacket();
-                Serial.printf("[Cloud] CMD unicast → %s: %s\n",
-                              peer.toString().c_str(), command.c_str());
-
-                _stateTable[cmdKey].cmdStatus = "DISPATCHED";
-                gossipTo(MsgPriority::ROUTINE);
-                dispatched = true;
-                break;
-            }
-        }
-
-        if (!dispatched) {
-            // Command is for this node, or room not yet mapped
-            Serial.printf("[Cloud] CMD local: %s\n", command.c_str());
-            onCommand(command, cmdId);
-            _stateTable[cmdKey].cmdStatus = "DISPATCHED";
-        }
     }
 }
 
-// GET /thresholds — sync into state table and distribute to mesh
 void NodeBase::cloudPollThresholds() {
     String response;
     if (!httpGET("/thresholds", response)) return;
@@ -608,15 +556,18 @@ void NodeBase::cloudPollThresholds() {
         if (_stateTable.count(key) && _stateTable[key].value == val) continue;
 
         StateEntry e;
-        e.value   = val;
+        e.value = val;
         e.version = _stateTable.count(key) ? _stateTable[key].version + 1 : 1;
         _stateTable[key] = e;
-        onMessage(key, e);   // notify child node
+        onMessage(key, e);
         anyNew = true;
     }
 
-    if (anyNew) gossipTo(MsgPriority::ROUTINE);
-    Serial.println("[Cloud] Thresholds synced");
+    if (anyNew) {
+        gossipTo(MsgPriority::ROUTINE);
+        Serial.println("[Cloud] Thresholds synced — updated state:");
+        printStateTable();
+    }
 }
 
 // ── HTTP ──────────────────────────────────────────────────────────────────────
@@ -628,9 +579,9 @@ bool NodeBase::httpPOST(const String& path, const String& body, String& response
     if (!http.begin(client, String(CLOUD_BASE) + path)) return false;
     http.addHeader("Content-Type", "application/json");
     int code = http.POST(body);
-    bool ok  = (code >= 200 && code < 300);
-    if (ok)  response = http.getString();
-    else     Serial.printf("[HTTP] POST %s → %d\n", path.c_str(), code);
+    bool ok = (code >= 200 && code < 300);
+    if (ok) response = http.getString();
+    else    Serial.printf("[HTTP] POST %s → %d\n", path.c_str(), code);
     http.end();
     return ok;
 }
@@ -641,9 +592,9 @@ bool NodeBase::httpGET(const String& path, String& response) {
     HTTPClient http;
     if (!http.begin(client, String(CLOUD_BASE) + path)) return false;
     int code = http.GET();
-    bool ok  = (code >= 200 && code < 300);
-    if (ok)  response = http.getString();
-    else     Serial.printf("[HTTP] GET %s → %d\n", path.c_str(), code);
+    bool ok = (code >= 200 && code < 300);
+    if (ok) response = http.getString();
+    else    Serial.printf("[HTTP] GET %s → %d\n", path.c_str(), code);
     http.end();
     return ok;
 }
