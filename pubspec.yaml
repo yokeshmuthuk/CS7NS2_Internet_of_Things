@@ -55,6 +55,9 @@ dependencies:
   # WebSocket for real-time updates
   web_socket_channel: ^3.0.1
 
+  # Gemini AI (direct from Flutter)
+  google_generative_ai: ^0.4.6
+
   # Icons
   material_symbols_icons: ^4.2782.0
 

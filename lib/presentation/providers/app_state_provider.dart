@@ -11,7 +11,7 @@ class AppStateProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _errorMessage;
   int _selectedTab = 0;
-  List<Room> _rooms = _buildDemoRooms();
+  List<Room> _rooms = [];
   bool _useCelsius = true;
   bool _notificationsEnabled = true;
   bool _autoModeEnabled = true;
@@ -39,12 +39,40 @@ class AppStateProvider extends ChangeNotifier {
       final cloudRooms =
           (data['rooms'] as List<dynamic>).cast<Map<String, dynamic>>();
 
+      const skipRooms = {'hub'};
+
       for (final cr in cloudRooms) {
         final roomId = cr['room_id'] as String;
-        final updatedAt =
-            DateTime.tryParse(cr['updated_at'] as String? ?? '');
-        final sensors = _buildSensors(roomId, cr, updatedAt);
+        if (skipRooms.contains(roomId)) continue;
 
+        // Convert _leader entry into a "Leader Node" room
+        if (roomId == '_leader') {
+          const leaderId = 'leader_node';
+          final updatedAt = DateTime.tryParse(cr['updated_at'] as String? ?? '');
+          final idx = _rooms.indexWhere((r) => r.id == leaderId);
+          // Only use data the leader entry actually provides — no fabricated data
+          final sensors = _buildSensors(leaderId, cr, updatedAt);
+          if (idx != -1) {
+            _rooms[idx] = _rooms[idx].copyWith(
+              sensors: sensors,
+              isOnline: true,
+              lastUpdated: updatedAt,
+            );
+          } else {
+            _rooms.add(Room(
+              id: leaderId,
+              name: 'Leader Node',
+              devices: [],
+              sensors: sensors,
+              isOnline: true,
+              lastUpdated: updatedAt,
+            ));
+          }
+          continue;
+        }
+
+        final updatedAt = DateTime.tryParse(cr['updated_at'] as String? ?? '');
+        final sensors = _buildSensors(roomId, cr, updatedAt);
         final idx = _rooms.indexWhere((r) => r.id == roomId);
         if (idx != -1) {
           _rooms[idx] = _rooms[idx].copyWith(
@@ -208,72 +236,6 @@ class AppStateProvider extends ChangeNotifier {
         type: DeviceType.window,
         position: 0,
         isOnline: true,
-      ),
-    ];
-  }
-
-  // ── Demo rooms (shown until cloud data arrives) ────────────────────────────
-
-  static List<Room> _buildDemoRooms() {
-    return [
-      Room(
-        id: 'living_room',
-        name: 'Living Room',
-        devices: _defaultDevices('living_room'),
-        sensors: [
-          Sensor(
-            id: 'living_room_temp',
-            roomId: 'living_room',
-            name: 'Temperature',
-            type: SensorType.temperature,
-            value: 22.5,
-            unit: '°C',
-            isOnline: true,
-          ),
-          Sensor(
-            id: 'living_room_hum',
-            roomId: 'living_room',
-            name: 'Humidity',
-            type: SensorType.humidity,
-            value: 45.0,
-            unit: '%',
-            isOnline: true,
-          ),
-          Sensor(
-            id: 'living_room_lux',
-            roomId: 'living_room',
-            name: 'Light',
-            type: SensorType.light,
-            value: 350.0,
-            unit: 'lux',
-            isOnline: true,
-          ),
-        ],
-      ),
-      Room(
-        id: 'bedroom',
-        name: 'Bedroom',
-        devices: _defaultDevices('bedroom'),
-        sensors: [
-          Sensor(
-            id: 'bedroom_temp',
-            roomId: 'bedroom',
-            name: 'Temperature',
-            type: SensorType.temperature,
-            value: 21.0,
-            unit: '°C',
-            isOnline: true,
-          ),
-          Sensor(
-            id: 'bedroom_hum',
-            roomId: 'bedroom',
-            name: 'Humidity',
-            type: SensorType.humidity,
-            value: 50.0,
-            unit: '%',
-            isOnline: true,
-          ),
-        ],
       ),
     ];
   }

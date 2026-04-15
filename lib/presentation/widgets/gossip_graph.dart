@@ -7,6 +7,8 @@ import '../providers/network_provider.dart';
 // ── Role colours (same as NodeCard) ───────────────────────────────────────
 Color _roleColor(String role) {
   switch (role) {
+    case 'leader':
+      return const Color(0xFFF59E0B);
     case 'trigger':
       return AppTheme.accentColor;
     case 'actuator':

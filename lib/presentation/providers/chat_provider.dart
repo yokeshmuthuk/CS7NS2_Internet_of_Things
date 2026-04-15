@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../core/services/api_service.dart';
+import '../../core/services/gemini_service.dart';
 import '../../data/models/chat_message.dart';
 
 class ChatProvider extends ChangeNotifier {
@@ -47,10 +47,7 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final data = await ApiService.aiPost('/chat', {
-        'message': text.trim(),
-        'state': homeState,
-      });
+      final data = await GeminiService.chat(text.trim(), homeState);
 
       final reply = data['reply'] as String? ?? '';
       final type = data['type'] as String? ?? 'EXPLAIN';
@@ -71,16 +68,14 @@ class ChatProvider extends ChangeNotifier {
           await onCommand(roomId, cloudCommand);
         }
       }
-    } catch (_) {
-      // AI server unavailable — fall back to mock
-      _messages.removeWhere((m) => m.id == userMsg.id);
+    } catch (e) {
       _messages.add(ChatMessage(
         id: --_mockId,
-        role: 'user',
-        content: userMsg.content,
-        createdAt: userMsg.createdAt,
+        role: 'assistant',
+        content: 'Error: $e',
+        createdAt: DateTime.now(),
+        isError: true,
       ));
-      _messages.add(_mockResponse(text.trim(), homeState));
     }
 
     await _saveLocal();
@@ -93,72 +88,6 @@ class ChatProvider extends ChangeNotifier {
     await _clearLocal();
     notifyListeners();
   }
-
-  // ── Fallback mock (when AI server is offline) ─────────────────────────────
-
-  ChatMessage _mockResponse(String query, Map<String, dynamic> homeState) {
-    final q = query.toLowerCase();
-    String response;
-
-    // Try to answer from actual state data
-    final rooms =
-        (homeState['rooms'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
-
-    if (q.contains('temperature')) {
-      final temps = rooms
-          .where((r) => r['temperature'] != null)
-          .map((r) =>
-              '${_roomName(r['room_id'] as String)}: ${r['temperature']}°C')
-          .join(', ');
-      response = temps.isNotEmpty
-          ? 'Current temperatures — $temps.'
-          : 'No temperature data available yet.';
-    } else if (q.contains('rain')) {
-      final rainy = rooms
-          .where((r) => r['rain_detected'] == true)
-          .map((r) => _roomName(r['room_id'] as String))
-          .toList();
-      response = rainy.isEmpty
-          ? 'No rain detected in any room.'
-          : 'Rain detected in: ${rainy.join(', ')}.';
-    } else if (q.contains('co2') || q.contains('co₂')) {
-      final co2 = rooms
-          .where((r) => r['co2_ppm'] != null)
-          .map((r) =>
-              '${_roomName(r['room_id'] as String)}: ${r['co2_ppm']} ppm')
-          .join(', ');
-      response = co2.isNotEmpty ? 'CO₂ levels — $co2.' : 'No CO₂ data yet.';
-    } else if (q.contains('humidity')) {
-      final hum = rooms
-          .where((r) => r['humidity'] != null)
-          .map((r) =>
-              '${_roomName(r['room_id'] as String)}: ${r['humidity']}%')
-          .join(', ');
-      response = hum.isNotEmpty ? 'Humidity — $hum.' : 'No humidity data yet.';
-    } else if (q.contains('air quality') || q.contains('aqi')) {
-      final aqi = rooms
-          .where((r) => r['aqi'] != null)
-          .map((r) => '${_roomName(r['room_id'] as String)}: ${r['aqi']}')
-          .join(', ');
-      response =
-          aqi.isNotEmpty ? 'Air quality — $aqi.' : 'No air quality data yet.';
-    } else {
-      response =
-          'AI server is offline. Start the Python server (uvicorn main:app) to enable full AI responses.';
-    }
-
-    return ChatMessage(
-      id: --_mockId,
-      role: 'assistant',
-      content: response,
-      createdAt: DateTime.now(),
-    );
-  }
-
-  static String _roomName(String roomId) => roomId
-      .split('_')
-      .map((w) => w[0].toUpperCase() + w.substring(1))
-      .join(' ');
 
   // ── Local persistence ─────────────────────────────────────────────────────
 

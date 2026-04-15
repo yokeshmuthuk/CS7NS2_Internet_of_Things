@@ -47,7 +47,9 @@ class ChatBubble extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: isUser
                         ? AppTheme.primaryColor
-                        : theme.colorScheme.surface,
+                        : message.isError
+                            ? AppTheme.errorColor.withOpacity(0.08)
+                            : theme.colorScheme.surface,
                     borderRadius: BorderRadius.only(
                       topLeft: const Radius.circular(16),
                       topRight: const Radius.circular(16),
@@ -56,15 +58,33 @@ class ChatBubble extends StatelessWidget {
                     ),
                     border: isUser
                         ? null
-                        : Border.all(color: theme.dividerColor),
+                        : Border.all(
+                            color: message.isError
+                                ? AppTheme.errorColor.withOpacity(0.3)
+                                : theme.dividerColor,
+                          ),
                   ),
-                  child: Text(
-                    message.content,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: isUser
-                          ? Colors.white
-                          : theme.colorScheme.onSurface,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (message.isError) ...[
+                        Icon(Icons.cloud_off,
+                            size: 14, color: AppTheme.errorColor),
+                        const SizedBox(width: 6),
+                      ],
+                      Flexible(
+                        child: SelectableText(
+                          message.content,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: isUser
+                                ? Colors.white
+                                : message.isError
+                                    ? AppTheme.errorColor
+                                    : theme.colorScheme.onSurface,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 3),

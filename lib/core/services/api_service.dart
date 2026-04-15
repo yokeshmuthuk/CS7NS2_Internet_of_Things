@@ -5,17 +5,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiService {
   static String _baseUrl =
       'https://9lr86473n6.execute-api.eu-west-1.amazonaws.com';
-  static String _aiBaseUrl = 'http://localhost:8000';
+  static String _geminiApiKey = '';
 
   static String get baseUrl => _baseUrl;
-  static String get aiBaseUrl => _aiBaseUrl;
+  static String get geminiApiKey => _geminiApiKey;
 
   static Future<void> loadBaseUrl() async {
     final prefs = await SharedPreferences.getInstance();
     _baseUrl = prefs.getString('backend_url') ??
         'https://9lr86473n6.execute-api.eu-west-1.amazonaws.com';
-    _aiBaseUrl =
-        prefs.getString('ai_server_url') ?? 'http://localhost:8000';
+    _geminiApiKey = prefs.getString('gemini_api_key') ?? '';
   }
 
   static Future<void> setBaseUrl(String url) async {
@@ -24,10 +23,10 @@ class ApiService {
     await prefs.setString('backend_url', url);
   }
 
-  static Future<void> setAiBaseUrl(String url) async {
-    _aiBaseUrl = url;
+  static Future<void> setGeminiApiKey(String key) async {
+    _geminiApiKey = key;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('ai_server_url', url);
+    await prefs.setString('gemini_api_key', key);
   }
 
   static Future<String?> _getToken() async {
@@ -83,20 +82,6 @@ class ApiService {
     final response = await http
         .delete(uri, headers: await _headers())
         .timeout(const Duration(seconds: 15));
-    return _handleResponse(response);
-  }
-
-  /// POST to the local AI server (Gemini/FastAPI) — separate URL, no auth.
-  static Future<dynamic> aiPost(
-      String path, Map<String, dynamic> body) async {
-    final uri = Uri.parse('$_aiBaseUrl$path');
-    final response = await http
-        .post(
-          uri,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(body),
-        )
-        .timeout(const Duration(seconds: 30));
     return _handleResponse(response);
   }
 

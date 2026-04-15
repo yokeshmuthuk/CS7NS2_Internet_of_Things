@@ -6,6 +6,7 @@ class NetworkNode {
   final String? ipAddress;
   bool isOnline;
   final DateTime? lastSeen;
+  final bool isLeader;
 
   NetworkNode({
     required this.id,
@@ -15,6 +16,7 @@ class NetworkNode {
     this.ipAddress,
     required this.isOnline,
     this.lastSeen,
+    this.isLeader = false,
   });
 
   factory NetworkNode.fromJson(Map<String, dynamic> json) {

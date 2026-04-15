@@ -39,7 +39,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           return ListView(
             children: [
               _buildHeader(context, provider),
-              _buildQuickActions(context),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
@@ -61,10 +60,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 gridDelegate:
                     const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  childAspectRatio: 1.0,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
+                  crossAxisCount: 3,
+                  childAspectRatio: 1.1,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
                 ),
                 itemCount: provider.rooms.length,
                 itemBuilder: (context, index) {
@@ -240,83 +239,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildQuickActions(BuildContext context) {
-    // We find the MainScreen's navigator and switch tab
-    final theme = Theme.of(context);
-    final actions = [
-      {
-        'icon': Icons.bar_chart_outlined,
-        'label': 'Analytics',
-        'color': const Color(0xFF4ECDC4),
-        'tabIndex': 1,
-      },
-      {
-        'icon': Icons.flash_on_outlined,
-        'label': 'Flows',
-        'color': AppTheme.accentColor,
-        'tabIndex': 2,
-      },
-      {
-        'icon': Icons.chat_outlined,
-        'label': 'Chat',
-        'color': AppTheme.secondaryColor,
-        'tabIndex': 3,
-      },
-      {
-        'icon': Icons.device_hub_outlined,
-        'label': 'Network',
-        'color': AppTheme.primaryColor,
-        'tabIndex': 4,
-      },
-    ];
-
-    return SizedBox(
-      height: 80,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        children: actions
-            .map((a) => Padding(
-                  padding: const EdgeInsets.only(right: 10),
-                  child: GestureDetector(
-                    onTap: () {
-                      // Navigate via Navigator
-                    },
-                    child: Container(
-                      width: 72,
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      decoration: BoxDecoration(
-                        color: (a['color'] as Color).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: (a['color'] as Color).withOpacity(0.3),
-                        ),
-                      ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(a['icon'] as IconData,
-                              size: 22,
-                              color: a['color'] as Color),
-                          const SizedBox(height: 5),
-                          Text(
-                            a['label'] as String,
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: a['color'] as Color,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ))
-            .toList(),
       ),
     );
   }
